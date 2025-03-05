@@ -1,100 +1,107 @@
-import React, { useEffect, useRef } from 'react';
-import { useSelector, useDispatch } from 'react-redux';
-import { useParams } from 'react-router-dom';
-import { gsap } from 'gsap';
-import { Draggable } from 'gsap/Draggable';
-import { updateElementPosition } from '../store/bookSlice';
+import { useEffect, useState, useRef, useCallback } from "react";
+import { useParams } from "react-router-dom";
 
-gsap.registerPlugin(Draggable);
+const backgrounds = {
+  Animals: "/backgrounds/animals-background.png",
+  Fantasy: "/backgrounds/fantasy-background.png",
+  Mystery: "/backgrounds/mystery-background.png",
+};
 
 const CategoryPage = () => {
   const { category } = useParams();
-  const dispatch = useDispatch();
-  const { books, elements, backgrounds } = useSelector((state) => state.books);
-  const categoryLower = category.toLowerCase();
-  const categoryElements = elements[categoryLower] || [];
-  const containerRef = useRef(null);
+  const [books, setBooks] = useState([]);
+  const positionsRef = useRef({});
+  const activeElementRef = useRef(null);
+  const offset = useRef({ x: 0, y: 0 });
 
   useEffect(() => {
-    console.log('Category Elements:', categoryElements);
-    categoryElements.forEach((el) => {
-      const element = document.getElementById(`element-${el.id}`);
-      if (element) {
-        gsap.fromTo(
-          element,
-          { opacity: 0, scale: 0 },
-          { opacity: 1, scale: 1, duration: 1, ease: 'back.out(1.7)' }
-        );
-        Draggable.create(element, {
-          bounds: containerRef.current,
-          onDragEnd: () => {
-            dispatch(
-              updateElementPosition({
-                category: categoryLower,
-                id: el.id,
-                x: element.offsetLeft,
-                y: element.offsetTop,
-              })
-            );
-          },
-        });
-      }
-    });
-  }, [categoryElements, categoryLower, dispatch]);
+    const storedBooks = JSON.parse(localStorage.getItem(`books-${category}`)) || [];
+    setBooks(storedBooks);
 
-  const backgroundsDefault = {
-    animals: '/backgrounds/animals-background.png',
-    fantasy: '/backgrounds/fantasy-background.png',
-    adventure: '/backgrounds/adventure-background.png',
+    positionsRef.current = JSON.parse(localStorage.getItem(`positions-${category}`)) || {};
+  }, [category]);
+
+  const onMouseMove = useCallback((e) => {
+    if (!activeElementRef.current) return;
+    const x = e.clientX - offset.current.x;
+    const y = e.clientY - offset.current.y;
+
+    activeElementRef.current.style.transform = `translate(${x}px, ${y}px)`;
+  }, []);
+
+  const onMouseUp = useCallback(() => {
+    if (!activeElementRef.current) return;
+
+    const bookId = activeElementRef.current.getAttribute("data-id");
+    const transform = activeElementRef.current.style.transform;
+    const [x, y] = transform
+      .replace("translate(", "")
+      .replace("px", "")
+      .replace(")", "")
+      .split(",")
+      .map(Number);
+
+    positionsRef.current[bookId] = { x, y };
+    localStorage.setItem(`positions-${category}`, JSON.stringify(positionsRef.current));
+
+    activeElementRef.current.style.transition = "transform 0.1s ease-out";
+    activeElementRef.current = null;
+  }, [category]);
+
+  useEffect(() => {
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+    };
+  }, [onMouseMove, onMouseUp]);
+
+  const startDragging = (e, bookId) => {
+    activeElementRef.current = e.target;
+    const pos = positionsRef.current[bookId] || { x: 100, y: 100 };
+    offset.current.x = e.clientX - pos.x;
+    offset.current.y = e.clientY - pos.y;
+
+    activeElementRef.current.style.transition = "none";
   };
 
   return (
     <div
-      ref={containerRef}
       style={{
-        background: `url(${backgrounds[categoryLower] || backgroundsDefault[categoryLower] || '/backgrounds/animals-background.png'}) no-repeat center center fixed`,
-        backgroundSize: 'cover',
-        height: '100vh',
-        position: 'relative',
-        padding: '20px',
+        width: "100vw",
+        height: "100vh",
+        background: `url(${backgrounds[category] || "/backgrounds/default.png"}) no-repeat center center/cover`,
+        position: "relative",
       }}
     >
-      {/* Styled box for category title */}
-      <div
-        style={{
-          background: 'rgba(255, 255, 255, 0.9)', // Semi-transparent white for contrast
-          border: '2px solid #4a90e2', // Blue border for a clean look
-          borderRadius: '10px', // Rounded corners
-          padding: '20px', // Space inside the box
-          boxShadow: '0 4px 8px rgba(0, 0, 0, 0.1)', // Subtle shadow for depth
-          maxWidth: '400px', // Limit width for readability
-          margin: '20px auto', // Center the box horizontally
-          textAlign: 'center', // Center text
-          fontSize: '24px', // Larger, readable title
-          fontWeight: 'bold', // Bold for emphasis
-          color: '#333', // Dark text for contrast
-          textTransform: 'capitalize', // Capitalize first letter of each word
-        }}
-      >
+      <h2 style={{ color: "white", textAlign: "center", padding: "20px" }}>
         {category} Books
-      </div>
+      </h2>
 
-      {/* Draggable elements (multiple per category, with saved positions) */}
-      {categoryElements.map((el) => (
-        <div
-          id={`element-${el.id}`}
-          key={el.id}
-          style={{
-            position: 'absolute',
-            left: el.x,
-            top: el.y,
-            width: 50,
-            height: 50,
-            backgroundColor: 'red',
-            borderRadius: '5px',
-          }}
-        />
-      ))}
+      <div style={{ position: "relative", width: "100%", height: "500px" }}>
+        {books.map((book) => {
+          const pos = positionsRef.current[book.id] || { x: 100, y: 100 };
+          return (
+            <div
+              key={book.id}
+              data-id={book.id}
+              className="draggable"
+              onMouseDown={(e) => startDragging(e, book.id)}
+              style={{
+                width: "50px",
+                height: "50px",
+                backgroundColor: "red",
+                position: "absolute",
+                cursor: "grab",
+                borderRadius: "10px",
+                boxShadow: "2px 2px 10px rgba(0, 0, 0, 0.3)",
+                transform: `translate(${pos.x}px, ${pos.y}px)`,
+              }}
+            />
+          );
+        })}
+      </div>
     </div>
   );
 };
